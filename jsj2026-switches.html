@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSJ 2026 — Visualizador de Switches</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface2: #f0f1f3;
+    --border: #d8dade;
+    --text: #1a1b1e;
+    --text2: #5c5e66;
+    --text3: #888;
+    --accent: #185FA5;
+    --shadow: 0 1px 4px rgba(0,0,0,.10), 0 4px 16px rgba(0,0,0,.06);
+    --radius: 10px;
+    --port-size: 84px;
+    --port-h: 80px;
+
+    --vlan-broadcast: #185FA5;
+    --vlan-gms: #639922;
+    --vlan-gms2: #BA7517;
+    --vlan-ap: #0F6E56;
+    --vlan-server: #A32D2D;
+    --vlan-unassigned: #888780;
+    --vlan-deassign: #5F5E5A;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12131a;
+      --surface: #1e2030;
+      --surface2: #252839;
+      --border: #333650;
+      --text: #e8eaf0;
+      --text2: #9a9db5;
+      --text3: #666;
+      --shadow: 0 1px 4px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.3);
+    }
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.5}
+  a{color:var(--accent)}
+
+  /* ── Layout ── */
+  .app{display:flex;flex-direction:column;min-height:100vh}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50;box-shadow:var(--shadow)}
+  .logo{width:32px;height:32px;background:var(--accent);border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+  .logo svg{fill:#fff}
+  .header-title h1{font-size:17px;font-weight:700;letter-spacing:-.3px}
+  .header-title p{font-size:12px;color:var(--text2)}
+  .header-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+  main{display:flex;flex:1;gap:0;overflow:hidden;height:calc(100vh - 61px)}
+  .sidebar{width:300px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:16px}
+  .content{flex:1;overflow-y:auto;padding:20px}
+  .panel{width:0;overflow:hidden;transition:width .25s;background:var(--surface);border-left:1px solid var(--border);flex-shrink:0}
+  .panel.open{width:280px;overflow-y:auto;padding:16px}
+
+  /* ── Controls ── */
+  .ctrl-group{margin-bottom:16px}
+  .ctrl-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+  select,input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+  select:focus,input:focus{border-color:var(--accent)}
+  .switch-info{background:var(--surface2);border-radius:7px;padding:10px 12px;margin-top:8px;font-size:12px;color:var(--text2);line-height:1.8}
+  .switch-info b{color:var(--text)}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:13px;cursor:pointer;transition:all .15s;font-weight:500;white-space:nowrap}
+  .btn:hover{background:var(--surface2);border-color:var(--accent);color:var(--accent)}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn-primary:hover{background:#0e4a82;border-color:#0e4a82;color:#fff}
+  .btn-sm{padding:5px 10px;font-size:12px}
+  .btn-group{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+
+  /* ── Stats ── */
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+  .stat-card .val{font-size:22px;font-weight:700;line-height:1}
+  .stat-card .lbl{font-size:11px;color:var(--text2);margin-top:2px}
+
+  /* ── VLAN Legend ── */
+  .legend{margin-top:4px}
+  .legend-item{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;border-radius:5px;padding-left:4px;transition:background .1s}
+  .legend-item:hover{background:var(--surface2)}
+  .legend-item.active{background:var(--surface2);font-weight:600}
+  .legend-dot{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+  .legend-name{font-size:12px;font-weight:600;flex:1}
+  .legend-count{font-size:11px;color:var(--text2);background:var(--surface2);padding:1px 6px;border-radius:10px}
+
+  /* ── Search results badge ── */
+  .search-badge{font-size:11px;color:var(--text2);margin-top:5px;display:none}
+  .search-badge.visible{display:block}
+
+  /* ── Switch Visual ── */
+  .switch-wrap{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:20px;border:1px solid var(--border)}
+  .switch-header{background:linear-gradient(135deg,#1a1f2e 0%,#2d3348 100%);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px}
+  .switch-badge{background:rgba(255,255,255,.15);border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600;letter-spacing:.5px}
+  .switch-header-info h2{font-size:16px;font-weight:700;margin-bottom:1px}
+  .switch-header-info p{font-size:11px;opacity:.7}
+  .switch-leds{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .led{width:8px;height:8px;border-radius:50%}
+  .led-green{background:#4ade80;box-shadow:0 0 6px #4ade80}
+  .led-amber{background:#fbbf24}
+  .ports-area{padding:16px 20px 20px}
+  .ports-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .ports-row-label{font-size:10px;color:var(--text3);margin-bottom:4px;font-weight:600}
+
+  /* ── Port Card ── */
+  .port{width:var(--port-size);height:var(--port-h);border-radius:7px;cursor:pointer;position:relative;transition:transform .15s, box-shadow .15s;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;border:2px solid transparent}
+  .port:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.2);z-index:2}
+  .port.selected{box-shadow:0 0 0 3px var(--accent), 0 4px 12px rgba(0,0,0,.2);transform:translateY(-2px);z-index:3}
+  .port.dimmed{opacity:.3}
+  .port.highlighted{opacity:1}
+
+  /* Port states */
+  .port[data-state=activo]{border-style:solid}
+  .port[data-state=vacio]{border-style:dashed;border-color:var(--border)!important;background:var(--surface2)!important}
+  .port[data-state=vacio] .port-color-bar{background:var(--vlan-unassigned)!important}
+  .port[data-state=desasignado]{border-style:solid;border-color:#5F5E5A!important;background:#3a3a3a!important}
+  .port[data-state=reservado]{border-width:3px}
+
+  .port-color-bar{height:5px;width:100%}
+  .port-body{flex:1;padding:5px 6px;display:flex;flex-direction:column;justify-content:space-between}
+  .port-num{font-size:11px;font-weight:700;color:rgba(255,255,255,.95)}
+  .port-cable{font-size:10px;color:rgba(255,255,255,.75);font-family:monospace;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .port-vlan{font-size:9px;font-weight:700;letter-spacing:.4px;color:rgba(255,255,255,.85);background:rgba(0,0,0,.2);border-radius:3px;padding:1px 4px;align-self:flex-start;white-space:nowrap;overflow:hidden;max-width:100%;text-overflow:ellipsis}
+
+  /* Tooltip */
+  .tooltip{position:fixed;background:#1a1f2e;color:#fff;padding:10px 13px;border-radius:8px;font-size:12px;pointer-events:none;z-index:100;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:200px;display:none}
+  .tooltip.visible{display:block}
+  .tooltip-title{font-weight:700;font-size:13px;margin-bottom:4px}
+  .tooltip-row{display:flex;justify-content:space-between;gap:12px;opacity:.9}
+  .tooltip-row span:first-child{color:rgba(255,255,255,.6)}
+
+  /* Detail Panel */
+  .detail-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .detail-header h3{font-size:15px;font-weight:700}
+  .detail-close{width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:none;cursor:pointer;color:var(--text2);font-size:16px;display:grid;place-items:center;transition:all .15s}
+  .detail-close:hover{background:var(--surface2);color:var(--text)}
+  .detail-port-visual{border-radius:8px;padding:16px;margin-bottom:14px;text-align:center}
+  .detail-port-visual .port-num-large{font-size:28px;font-weight:800;color:#fff;opacity:.9}
+  .detail-field{margin-bottom:10px}
+  .detail-field .lbl{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .detail-field .val{font-size:14px;font-weight:600}
+  .vlan-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:700;color:#fff}
+  .vlan-badge .dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.5)}
+  .state-badge{padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;display:inline-block}
+  .state-activo{background:#dcfce7;color:#166534}
+  .state-vacio{background:#f3f4f6;color:#6b7280}
+  .state-desasignado{background:#f1f5f9;color:#475569}
+  .state-reservado{background:#fef3c7;color:#92400e}
+  @media (prefers-color-scheme: dark) {
+    .state-activo{background:#14532d;color:#86efac}
+    .state-vacio{background:#374151;color:#9ca3af}
+    .state-desasignado{background:#1e293b;color:#94a3b8}
+    .state-reservado{background:#451a03;color:#fcd34d}
+  }
+
+  /* Empty state */
+  .empty-state{text-align:center;padding:60px 20px;color:var(--text2)}
+  .empty-state svg{opacity:.3;margin-bottom:12px}
+  .empty-state p{font-size:15px;margin-bottom:6px;font-weight:600}
+  .empty-state small{font-size:13px;opacity:.7}
+
+  /* Responsive */
+  @media(max-width:900px){
+    main{flex-direction:column;height:auto;overflow:auto}
+    .sidebar{width:100%;border-right:none;border-bottom:1px solid var(--border)}
+    .panel{width:100%!important;border-left:none;border-top:1px solid var(--border)}
+    .panel.open{width:100%!important}
+    :root{--port-size:74px;--port-h:72px}
+  }
+  @media(max-width:480px){
+    :root{--port-size:62px;--port-h:60px}
+    .ports-row{gap:5px}
+    .content{padding:12px}
+    .sidebar{padding:12px}
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/></svg>
+    </div>
+    <div class="header-title">
+      <h1>JSJ 2026 — Visualizador de Switches</h1>
+      <p>FortiSwitch Network Management · IBC Venues</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-sm" onclick="exportCSV()">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        CSV
+      </button>
+      <button class="btn btn-sm" onclick="exportPDF()">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        PDF
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <div class="sidebar">
+      <div class="ctrl-group">
+        <div class="ctrl-label">Switch</div>
+        <select id="switchSelect" onchange="selectSwitch(this.value)">
+          <option value="">— Seleccionar switch —</option>
+          <option value="fsw-124f-dist">FortiSwitch 124F (Distribución)</option>
+          <option value="fsw-624f-ibc-a">FortiSwitch 624F IBC A</option>
+          <option value="fsw-624f-ibc-b">FortiSwitch 624F IBC B</option>
+        </select>
+        <div class="switch-info" id="switchInfo" style="display:none"></div>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-label">Buscar</div>
+        <input type="text" id="searchInput" placeholder="Puerto, cable, VLAN..." oninput="filterPorts(this.value)">
+        <div class="search-badge" id="searchBadge"></div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-sm" onclick="clearFilters()">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Limpiar filtros
+        </button>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-label">Estadísticas</div>
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card"><div class="val" id="statTotal">—</div><div class="lbl">Total puertos</div></div>
+          <div class="stat-card"><div class="val" id="statActive">—</div><div class="lbl">Activos</div></div>
+          <div class="stat-card"><div class="val" id="statEmpty">—</div><div class="lbl">Vacíos</div></div>
+          <div class="stat-card"><div class="val" id="statVlans">—</div><div class="lbl">VLANs activas</div></div>
+        </div>
+      </div>
+
+      <div class="ctrl-group">
+        <div class="ctrl-label">Leyenda de VLANs</div>
+        <div class="legend" id="vlanLegend"></div>
+      </div>
+    </div>
+
+    <div class="content" id="mainContent">
+      <div class="empty-state">
+        <svg width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+        <p>Selecciona un switch</p>
+        <small>Elige un switch del menú lateral para visualizar su configuración de puertos</small>
+      </div>
+    </div>
+
+    <div class="panel" id="detailPanel"></div>
+  </main>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════════
+const DATA = {
+  vlan_map: {
+    "BROADCAST":         { color: "#185FA5", desc: "Broadcast / Difusión",    short: "BCAST"  },
+    "GMS":               { color: "#639922", desc: "Gestión General",         short: "GMS"    },
+    "GMS2":              { color: "#BA7517", desc: "Gestión Secundaria",      short: "GMS2"   },
+    "ACCESS POINT":      { color: "#0F6E56", desc: "Red Inalámbrica (AP)",    short: "AP"     },
+    "SERVER MONITOREO":  { color: "#A32D2D", desc: "Servidor de Monitoreo",   short: "SRV"    },
+    "Sin asignar":       { color: "#888780", desc: "Sin asignar",             short: "—"      },
+    "Desasignar":        { color: "#5F5E5A", desc: "Desasignado / Retirar",   short: "DEL"    }
+  },
+  switches: [
+    {
+      id: "fsw-124f-dist",
+      nombre: "FortiSwitch 124F",
+      modelo: "FortiSwitch 124F",
+      ubicacion: "Venue Principal (IBC) — Distribución",
+      ip: "10.0.1.100",
+      puertos: [
+        { n:"P01", cable:"PT13",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P02", cable:"PT17",  vlan:"GMS",              estado:"activo"     },
+        { n:"P03", cable:"PT09",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P04", cable:"PT07",  vlan:"GMS",              estado:"activo"     },
+        { n:"P05", cable:"PT08",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P06", cable:"PT19",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P07", cable:"PT21",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P08", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P09", cable:"PT03",  vlan:"Desasignar",       estado:"desasignado"},
+        { n:"P10", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P11", cable:"PT01",  vlan:"Desasignar",       estado:"desasignado"},
+        { n:"P12", cable:"PT02",  vlan:"Desasignar",       estado:"desasignado"},
+        { n:"P13", cable:"PT11",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P14", cable:"PT18",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P15", cable:"PT20",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P16", cable:"PT25",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P17", cable:"PT15",  vlan:"GMS",              estado:"activo"     },
+        { n:"P18", cable:"PT16",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P19", cable:"PT32",  vlan:"GMS",              estado:"activo"     },
+        { n:"P20", cable:"PT27",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P21", cable:"PT28",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P22", cable:"PT31",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P23", cable:"PT24",  vlan:"GMS",              estado:"activo"     },
+        { n:"P24", cable:"PT29",  vlan:"GMS",              estado:"activo"     }
+      ]
+    },
+    {
+      id: "fsw-624f-ibc-a",
+      nombre: "FortiSwitch 624F IBC A",
+      modelo: "FortiSwitch 624F",
+      ubicacion: "IBC — Centro de Control A",
+      ip: "10.0.2.100",
+      puertos: [
+        { n:"P01", cable:"PT14",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P02", cable:"PT04",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P03", cable:"PT12",  vlan:"GMS",              estado:"activo"     },
+        { n:"P04", cable:"PT06",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P05", cable:"PT22",  vlan:"GMS",              estado:"activo"     },
+        { n:"P06", cable:"PT05",  vlan:"GMS",              estado:"activo"     },
+        { n:"P07", cable:"PT26",  vlan:"GMS",              estado:"activo"     },
+        { n:"P08", cable:"PT30",  vlan:"GMS",              estado:"activo"     },
+        { n:"P09", cable:"PT33",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P10", cable:"Reservado", vlan:"SERVER MONITOREO", estado:"reservado"},
+        { n:"P11", cable:"PT10",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P12", cable:"KI01",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P13", cable:"PT23",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P14", cable:"KI02",  vlan:"GMS",              estado:"activo"     },
+        { n:"P15", cable:"Reservado", vlan:"BROADCAST",    estado:"reservado"  },
+        { n:"P16", cable:"KI03",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P17", cable:"KI04",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P18", cable:"KI05",  vlan:"GMS",              estado:"activo"     },
+        { n:"P19", cable:"KI06",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P20", cable:"KI07",  vlan:"GMS",              estado:"activo"     },
+        { n:"P21", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P22", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P23", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P24", cable:"",      vlan:"Sin asignar",      estado:"vacio"      }
+      ]
+    },
+    {
+      id: "fsw-624f-ibc-b",
+      nombre: "FortiSwitch 624F IBC B",
+      modelo: "FortiSwitch 624F",
+      ubicacion: "IBC — Centro de Control B",
+      ip: "10.0.3.100",
+      puertos: [
+        { n:"P01", cable:"Reservado", vlan:"ACCESS POINT",  estado:"reservado" },
+        { n:"P02", cable:"Reservado", vlan:"ACCESS POINT",  estado:"reservado" },
+        { n:"P03", cable:"KI08",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P04", cable:"KI09",  vlan:"GMS",              estado:"activo"     },
+        { n:"P05", cable:"KI10",  vlan:"GMS",              estado:"activo"     },
+        { n:"P06", cable:"KI11",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P07", cable:"KI12",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P08", cable:"KI13",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P09", cable:"KI14",  vlan:"GMS",              estado:"activo"     },
+        { n:"P10", cable:"KI15",  vlan:"GMS2",             estado:"activo"     },
+        { n:"P11", cable:"KI16",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P12", cable:"KI17",  vlan:"BROADCAST",        estado:"activo"     },
+        { n:"P13", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P14", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P15", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P16", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P17", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P18", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P19", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P20", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P21", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P22", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P23", cable:"",      vlan:"Sin asignar",      estado:"vacio"      },
+        { n:"P24", cable:"",      vlan:"Sin asignar",      estado:"vacio"      }
+      ]
+    }
+  ]
+};
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let currentSwitch = null;
+let selectedPort = null;
+let activeVlanFilter = null;
+let searchQuery = '';
+
+// ═══════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════
+function init() {
+  buildLegend();
+}
+
+// ═══════════════════════════════════════════════
+//  SWITCH SELECTION
+// ═══════════════════════════════════════════════
+function selectSwitch(id) {
+  if (!id) { currentSwitch = null; renderEmpty(); return; }
+  currentSwitch = DATA.switches.find(s => s.id === id);
+  selectedPort = null;
+  activeVlanFilter = null;
+  document.getElementById('searchInput').value = '';
+  searchQuery = '';
+  renderSwitchInfo();
+  renderSwitch();
+  updateStats();
+  buildLegend();
+  closePanelDetail();
+}
+
+function renderSwitchInfo() {
+  const el = document.getElementById('switchInfo');
+  if (!currentSwitch) { el.style.display='none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `<b>${currentSwitch.modelo}</b><br>${currentSwitch.ubicacion}<br>IP: <b>${currentSwitch.ip}</b>`;
+}
+
+// ═══════════════════════════════════════════════
+//  RENDER SWITCH
+// ═══════════════════════════════════════════════
+function renderSwitch() {
+  if (!currentSwitch) { renderEmpty(); return; }
+  const content = document.getElementById('mainContent');
+  const ports = currentSwitch.puertos;
+  const rows = [ports.slice(0,8), ports.slice(8,16), ports.slice(16,24)];
+
+  content.innerHTML = `
+    <div class="switch-wrap" id="switchWrap">
+      <div class="switch-header">
+        <div>
+          <div class="switch-badge">${currentSwitch.modelo}</div>
+        </div>
+        <div class="switch-header-info" style="margin-left:10px">
+          <h2>${currentSwitch.nombre}</h2>
+          <p>${currentSwitch.ubicacion} · ${currentSwitch.ip}</p>
+        </div>
+        <div class="switch-leds">
+          <div class="led led-green" title="Power"></div>
+          <div class="led led-green" title="Status"></div>
+          <div class="led led-amber" title="Activity"></div>
+        </div>
+      </div>
+      <div class="ports-area">
+        ${rows.map((row, ri) => `
+          <div class="ports-row-label">Fila ${ri+1} · P${String(ri*8+1).padStart(2,'0')}–P${String(Math.min(ri*8+8, ports.length)).padStart(2,'0')}</div>
+          <div class="ports-row">${row.map(p => renderPortCard(p)).join('')}</div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  applyVisualFilters();
+}
+
+function getPortBg(port) {
+  if (port.estado === 'vacio') return '#2a2d3a';
+  if (port.estado === 'desasignado') return '#2c2c2c';
+  const vlan = DATA.vlan_map[port.vlan];
+  return vlan ? vlan.color : '#555';
+}
+
+function renderPortCard(port) {
+  const bg = getPortBg(port);
+  const vlan = DATA.vlan_map[port.vlan];
+  const colorBar = vlan ? vlan.color : '#555';
+  const cableDisplay = port.cable || '—';
+  const vlanShort = vlan ? vlan.short : '?';
+  return `
+    <div class="port" id="port-${port.n}"
+      data-port="${port.n}" data-cable="${port.cable}" data-vlan="${port.vlan}" data-state="${port.estado}"
+      style="background:${bg}22; border-color:${bg};"
+      onclick="clickPort('${port.n}')"
+      onmouseenter="showTooltip(event,'${port.n}')"
+      onmouseleave="hideTooltip()">
+      <div class="port-color-bar" style="background:${colorBar}"></div>
+      <div class="port-body">
+        <div class="port-num">${port.n}</div>
+        <div class="port-cable">${cableDisplay}</div>
+        <div class="port-vlan">${vlanShort}</div>
+      </div>
+    </div>`;
+}
+
+function renderEmpty() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="empty-state">
+      <svg width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+      <p>Selecciona un switch</p>
+      <small>Elige un switch del menú lateral para visualizar su configuración de puertos</small>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════
+//  TOOLTIP
+// ═══════════════════════════════════════════════
+function showTooltip(e, portNum) {
+  if (!currentSwitch) return;
+  const port = currentSwitch.puertos.find(p => p.n === portNum);
+  if (!port) return;
+  const vlanInfo = DATA.vlan_map[port.vlan];
+  const tt = document.getElementById('tooltip');
+  tt.innerHTML = `
+    <div class="tooltip-title">${port.n}</div>
+    <div class="tooltip-row"><span>Cable</span><span>${port.cable || '—'}</span></div>
+    <div class="tooltip-row"><span>VLAN</span><span style="color:${vlanInfo?.color || '#aaa'}">${port.vlan}</span></div>
+    <div class="tooltip-row"><span>Estado</span><span>${capitalise(port.estado)}</span></div>
+    ${vlanInfo ? `<div class="tooltip-row"><span style="opacity:.5">${vlanInfo.desc}</span></div>` : ''}
+  `;
+  positionTooltip(e);
+  tt.classList.add('visible');
+}
+function hideTooltip() {
+  document.getElementById('tooltip').classList.remove('visible');
+}
+function positionTooltip(e) {
+  const tt = document.getElementById('tooltip');
+  tt.style.display = 'block';
+  const tw = tt.offsetWidth, th = tt.offsetHeight;
+  let x = e.clientX + 12, y = e.clientY + 12;
+  if (x + tw > window.innerWidth - 8) x = e.clientX - tw - 12;
+  if (y + th > window.innerHeight - 8) y = e.clientY - th - 12;
+  tt.style.left = x + 'px';
+  tt.style.top = y + 'px';
+}
+
+// ═══════════════════════════════════════════════
+//  PORT CLICK / DETAIL
+// ═══════════════════════════════════════════════
+function clickPort(portNum) {
+  if (!currentSwitch) return;
+  hideTooltip();
+  if (selectedPort === portNum) {
+    selectedPort = null;
+    closePanelDetail();
+    applyVisualFilters();
+    return;
+  }
+  selectedPort = portNum;
+  applyVisualFilters();
+  showPortDetails(portNum);
+}
+
+function showPortDetails(portNum) {
+  const port = currentSwitch.puertos.find(p => p.n === portNum);
+  if (!port) return;
+  const vlan = DATA.vlan_map[port.vlan];
+  const bg = getPortBg(port);
+  const panel = document.getElementById('detailPanel');
+  panel.classList.add('open');
+  panel.innerHTML = `
+    <div class="detail-header">
+      <h3>Detalle de Puerto</h3>
+      <button class="detail-close" onclick="closePanelDetail()">×</button>
+    </div>
+    <div class="detail-port-visual" style="background:${bg}33; border:2px solid ${bg};">
+      <div class="port-num-large" style="color:${bg}">${port.n}</div>
+    </div>
+    <div class="detail-field">
+      <div class="lbl">Cable</div>
+      <div class="val" style="font-family:monospace;font-size:18px">${port.cable || '— Sin cable —'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="lbl">VLAN</div>
+      <div class="vlan-badge" style="background:${vlan?.color || '#888'}">
+        <div class="dot"></div>${port.vlan}
+      </div>
+    </div>
+    <div class="detail-field">
+      <div class="lbl">Descripción VLAN</div>
+      <div class="val">${vlan?.desc || '—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="lbl">Estado</div>
+      <span class="state-badge state-${port.estado}">${capitalise(port.estado)}</span>
+    </div>
+    <div class="detail-field" style="margin-top:16px">
+      <div class="lbl">Switch</div>
+      <div class="val" style="font-size:13px">${currentSwitch.nombre}</div>
+    </div>
+    <div class="detail-field">
+      <div class="lbl">IP de Gestión</div>
+      <div class="val" style="font-family:monospace;font-size:13px">${currentSwitch.ip}</div>
+    </div>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+      <button class="btn btn-sm" onclick="highlightVlan('${port.vlan}')">Ver todos en ${port.vlan}</button>
+    </div>
+  `;
+}
+
+function closePanelDetail() {
+  const panel = document.getElementById('detailPanel');
+  panel.classList.remove('open');
+  selectedPort = null;
+  applyVisualFilters();
+}
+
+// ═══════════════════════════════════════════════
+//  VLAN HIGHLIGHT
+// ═══════════════════════════════════════════════
+function highlightVlan(vlanName) {
+  if (activeVlanFilter === vlanName) {
+    activeVlanFilter = null;
+  } else {
+    activeVlanFilter = vlanName;
+  }
+  buildLegend();
+  applyVisualFilters();
+}
+
+function applyVisualFilters() {
+  if (!currentSwitch) return;
+  const ports = document.querySelectorAll('.port');
+  const hasFilter = activeVlanFilter || searchQuery || selectedPort;
+
+  ports.forEach(el => {
+    const portVlan = el.dataset.vlan;
+    const portCable = el.dataset.cable.toLowerCase();
+    const portNum = el.dataset.port.toLowerCase();
+    const portVlanLower = portVlan.toLowerCase();
+    const q = searchQuery.toLowerCase();
+
+    let match = true;
+    if (q) {
+      match = portNum.includes(q) || portCable.includes(q) || portVlanLower.includes(q);
+    }
+    if (activeVlanFilter && match) {
+      match = portVlan === activeVlanFilter;
+    }
+
+    el.classList.remove('dimmed', 'highlighted', 'selected');
+    if (selectedPort && el.dataset.port === selectedPort) {
+      el.classList.add('selected');
+    } else if (hasFilter) {
+      el.classList.add(match ? 'highlighted' : 'dimmed');
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  SEARCH
+// ═══════════════════════════════════════════════
+function filterPorts(q) {
+  searchQuery = q;
+  activeVlanFilter = null;
+  buildLegend();
+  applyVisualFilters();
+
+  const badge = document.getElementById('searchBadge');
+  if (q && currentSwitch) {
+    const ql = q.toLowerCase();
+    const count = currentSwitch.puertos.filter(p =>
+      p.n.toLowerCase().includes(ql) || p.cable.toLowerCase().includes(ql) || p.vlan.toLowerCase().includes(ql)
+    ).length;
+    badge.textContent = `${count} resultado${count!==1?'s':''} encontrado${count!==1?'s':''}`;
+    badge.classList.add('visible');
+  } else {
+    badge.classList.remove('visible');
+  }
+}
+
+function clearFilters() {
+  document.getElementById('searchInput').value = '';
+  searchQuery = '';
+  activeVlanFilter = null;
+  selectedPort = null;
+  document.getElementById('searchBadge').classList.remove('visible');
+  buildLegend();
+  applyVisualFilters();
+  closePanelDetail();
+}
+
+// ═══════════════════════════════════════════════
+//  STATS
+// ═══════════════════════════════════════════════
+function updateStats() {
+  if (!currentSwitch) return;
+  const ports = currentSwitch.puertos;
+  const active = ports.filter(p => p.estado === 'activo' || p.estado === 'reservado').length;
+  const empty = ports.filter(p => p.estado === 'vacio').length;
+  const vlans = new Set(ports.filter(p => p.estado === 'activo').map(p => p.vlan)).size;
+
+  document.getElementById('statTotal').textContent = ports.length;
+  document.getElementById('statActive').textContent = active;
+  document.getElementById('statEmpty').textContent = empty;
+  document.getElementById('statVlans').textContent = vlans;
+}
+
+// ═══════════════════════════════════════════════
+//  LEGEND
+// ═══════════════════════════════════════════════
+function buildLegend() {
+  const el = document.getElementById('vlanLegend');
+  const counts = {};
+  if (currentSwitch) {
+    currentSwitch.puertos.forEach(p => {
+      counts[p.vlan] = (counts[p.vlan] || 0) + 1;
+    });
+  }
+
+  const items = Object.entries(DATA.vlan_map).map(([name, info]) => {
+    const count = counts[name] || 0;
+    const isActive = activeVlanFilter === name;
+    return `
+      <div class="legend-item ${isActive ? 'active' : ''}" onclick="highlightVlan('${name}')">
+        <div class="legend-dot" style="background:${info.color}"></div>
+        <span class="legend-name">${name}</span>
+        ${count ? `<span class="legend-count">${count}</span>` : ''}
+      </div>`;
+  }).join('');
+  el.innerHTML = items;
+}
+
+// ═══════════════════════════════════════════════
+//  EXPORT CSV
+// ═══════════════════════════════════════════════
+function exportCSV() {
+  if (!currentSwitch) { alert('Selecciona un switch primero.'); return; }
+  const rows = [['Puerto','Cable','VLAN','Estado','Switch','Modelo','IP']];
+  currentSwitch.puertos.forEach(p => {
+    rows.push([p.n, p.cable || '', p.vlan, p.estado, currentSwitch.nombre, currentSwitch.modelo, currentSwitch.ip]);
+  });
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${currentSwitch.nombre.replace(/\s+/g,'_')}_JSJ2026.csv`;
+  link.click();
+}
+
+// ═══════════════════════════════════════════════
+//  EXPORT PDF (Print-based)
+// ═══════════════════════════════════════════════
+function exportPDF() {
+  if (!currentSwitch) { alert('Selecciona un switch primero.'); return; }
+  const ports = currentSwitch.puertos;
+  const rows = ports.map(p => {
+    const vlan = DATA.vlan_map[p.vlan];
+    return `<tr>
+      <td style="font-weight:700">${p.n}</td>
+      <td style="font-family:monospace">${p.cable || '—'}</td>
+      <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;background:${vlan?.color||'#888'};color:#fff;font-size:11px;font-weight:700">${p.vlan}</span></td>
+      <td style="text-transform:capitalize">${p.estado}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>${currentSwitch.nombre} — JSJ 2026</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:24px;color:#111;font-size:13px}
+      h1{font-size:20px;margin-bottom:4px}p{color:#555;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse}
+      th{background:#1a1f2e;color:#fff;padding:8px 10px;text-align:left;font-size:12px;text-transform:uppercase}
+      td{padding:7px 10px;border-bottom:1px solid #e5e7eb}
+      tr:nth-child(even) td{background:#f9fafb}
+      .meta{display:flex;gap:32px;margin-bottom:16px;background:#f0f4f8;padding:10px 14px;border-radius:6px;font-size:12px}
+      .meta b{display:block;font-size:14px}
+    </style></head><body>
+    <h1>${currentSwitch.nombre}</h1>
+    <p>JSJ 2026 — Configuración de Puertos · Generado: ${new Date().toLocaleString('es')}</p>
+    <div class="meta">
+      <div><b>${currentSwitch.modelo}</b>Modelo</div>
+      <div><b>${currentSwitch.ip}</b>IP Gestión</div>
+      <div><b>${currentSwitch.ubicacion}</b>Ubicación</div>
+      <div><b>${ports.length}</b>Total Puertos</div>
+    </div>
+    <table><thead><tr><th>Puerto</th><th>Cable</th><th>VLAN</th><th>Estado</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    </body></html>`;
+
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => { w.print(); };
+}
+
+// ═══════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════
+function capitalise(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+// ═══════════════════════════════════════════════
+//  KEYBOARD NAV
+// ═══════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    clearFilters();
+    document.getElementById('switchSelect').focus();
+  }
+});
+
+// Auto-select first switch
+window.addEventListener('DOMContentLoaded', () => {
+  init();
+  // Uncomment to auto-load first switch:
+  // document.getElementById('switchSelect').value = 'fsw-124f-dist';
+  // selectSwitch('fsw-124f-dist');
+});
+</script>
+</body>
+</html>
